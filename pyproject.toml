@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bounded-media-worker"
+version = "0.1.0rc1"
+description = "Resource-bounded subprocess helpers for PDF and image media"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "bounded-media-worker contributors" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Operating System :: POSIX :: Linux",
+]
+
+[project.optional-dependencies]
+pdf = ["pypdf>=6.19,<7"]
+image = ["Pillow>=12.3,<13"]
+ocr = ["Pillow>=12.3,<13", "pytesseract>=0.3.13,<0.4"]
+dev = ["build>=1.2", "mypy>=1.13", "pytest>=9.1", "ruff>=0.8"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+strict = true
+files = ["src"]
