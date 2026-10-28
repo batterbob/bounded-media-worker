@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import base64
 import os
+import selectors
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,10 @@ from .protocol import PROTOCOL_VERSION, ProtocolError, decode_frame, encode_fram
 from .types import BytesResult, LimitReason, Outcome, TextResult, WorkerPolicy
 
 _DETAIL_CAP = 512
+
+
+class _OutputOverflow(Exception):
+    pass
 
 
 def _minimal_environment() -> dict[str, str]:
@@ -74,10 +80,13 @@ def run_operation(operation: str, data: bytes, policy: WorkerPolicy, *, bytes_re
     except OSError:
         return (BytesResult if bytes_result else TextResult)(Outcome.WORKER_EXIT, detail="worker could not start")
     try:
-        stdout, _ = child.communicate(frame, timeout=policy.limits.wall_time_seconds)
-    except subprocess.TimeoutExpired:
+        stdout = _communicate_bounded(child, frame, policy.limits.max_protocol_bytes, policy.limits.wall_time_seconds)
+    except TimeoutError:
         _terminate_group(child)
         return (BytesResult if bytes_result else TextResult)(Outcome.TIMEOUT, limit_reason=LimitReason.WALL_TIME)
+    except _OutputOverflow:
+        _terminate_group(child)
+        return (BytesResult if bytes_result else TextResult)(Outcome.OUTPUT_LIMIT, limit_reason=LimitReason.PROTOCOL_BYTES)
     if child.returncode is not None and child.returncode < 0:
         return (BytesResult if bytes_result else TextResult)(Outcome.WORKER_EXIT, signal=-child.returncode)
     if child.returncode:
@@ -103,3 +112,47 @@ def _terminate_group(child: subprocess.Popen[bytes]) -> None:
     except ProcessLookupError:
         pass
     child.wait(timeout=1.0)
+
+
+def _communicate_bounded(child: subprocess.Popen[bytes], request: bytes, maximum: int, timeout: float) -> bytes:
+    """Exchange one frame without retaining more than ``maximum`` response bytes."""
+    if child.stdin is None or child.stdout is None:
+        raise RuntimeError("worker pipes are unavailable")
+    deadline = time.monotonic() + timeout
+    written = 0
+    output = bytearray()
+    with selectors.DefaultSelector() as selector:
+        os.set_blocking(child.stdin.fileno(), False)
+        os.set_blocking(child.stdout.fileno(), False)
+        selector.register(child.stdin, selectors.EVENT_WRITE)
+        selector.register(child.stdout, selectors.EVENT_READ)
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            for key, _ in selector.select(remaining):
+                if key.fileobj is child.stdin:
+                    try:
+                        written += os.write(child.stdin.fileno(), request[written:])
+                    except BlockingIOError:
+                        continue
+                    if written == len(request):
+                        selector.unregister(child.stdin)
+                        child.stdin.close()
+                else:
+                    try:
+                        chunk = os.read(child.stdout.fileno(), min(65_536, maximum + 1 - len(output)))
+                    except BlockingIOError:
+                        continue
+                    if not chunk:
+                        selector.unregister(child.stdout)
+                        child.stdout.close()
+                    else:
+                        output.extend(chunk)
+                        if len(output) > maximum:
+                            raise _OutputOverflow
+    try:
+        child.wait(timeout=max(0.0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired as error:
+        raise TimeoutError from error
+    return bytes(output)
