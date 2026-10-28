@@ -28,3 +28,6 @@ def test_generated_image_canonicalizes_to_png() -> None:
     assert result.outcome is Outcome.SUCCESS
     assert result.media_type == "image/png"
     assert result.data is not None and result.data.startswith(b"\x89PNG")
+    canonical = Image.open(io.BytesIO(result.data))
+    assert canonical.mode == "RGB"
+    assert not canonical.getexif()
