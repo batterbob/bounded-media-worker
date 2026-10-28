@@ -1,22 +1,22 @@
 # v0.1.0-rc1 local candidate report
 
-Candidate commit: `12368d4`.
+Candidate commit: `822e1f66c6f494a6248ec8b8dd01ff950d9749db`.
 
 Validated on Linux with Python 3.12:
 
-- `pytest`: 17 passed
+- `pytest`: 20 passed
 - Ruff and mypy: clean
 - source tree vocabulary scan: clean
 - `git fsck --no-dangling`: clean
 - wheel and source distribution built from an isolated project environment
 - fresh temporary installs succeeded for base, `pdf`, `image`, and `ocr` extras
 
-Current artifacts are local only in `release-artifacts-rc1-r2/`:
+Current artifacts are local only in `release-artifacts-rc1-r3/`:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `bounded_media_worker-0.1.0rc1-py3-none-any.whl` | `903ffd6fff0f32a3e39ed09bbd712eef36866c7a48e706f9320e061ba08f08ef` |
-| `bounded_media_worker-0.1.0rc1.tar.gz` | `6c9119d4ffb30c1e8e29ce2038304389c8b74c3dfb03a1185656238ce0db913f` |
+| `bounded_media_worker-0.1.0rc1-py3-none-any.whl` | `350029090fc932d3ee6e1313d07082f275fdf50af39c7480ed933c5b5eb6f5a8` |
+| `bounded_media_worker-0.1.0rc1.tar.gz` | `b55cecf427664c7c3c9be7fe38c40fd3e04fae0ab85e09c0d35ceef7486d2794` |
 
 The host system Python lacks `ensurepip`, so an isolated project environment
 was used for `build --no-isolation`; this is an environment constraint, not a
