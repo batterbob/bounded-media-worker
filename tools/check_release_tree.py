@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Reject known private-source vocabulary in release inputs."""
 
 from __future__ import annotations

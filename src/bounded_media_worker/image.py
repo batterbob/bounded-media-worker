@@ -80,12 +80,14 @@ def canonicalize(data: bytes, limits: object) -> dict[str, object]:
     if isinstance(image, dict):
         return image
     try:
-        from PIL import ImageOps
+        from PIL import Image, ImageOps
         image = cast(Any, image)
         image = ImageOps.exif_transpose(image).convert("RGB")
         image.thumbnail((limits.max_image_width, limits.max_image_height))  # type: ignore[attr-defined]
+        canonical = Image.new("RGB", image.size)
+        canonical.paste(image)
         output = io.BytesIO()
-        image.save(output, format="PNG", optimize=False, compress_level=9)
+        canonical.save(output, format="PNG", optimize=False, compress_level=9, pnginfo=None, icc_profile=None, exif=b"")
         result = output.getvalue()
         if len(result) > limits.max_output_bytes:  # type: ignore[attr-defined]
             return {"outcome": Outcome.OUTPUT_LIMIT.value, "limit_reason": LimitReason.OUTPUT_BYTES.value}

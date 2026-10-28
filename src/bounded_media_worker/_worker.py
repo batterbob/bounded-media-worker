@@ -23,16 +23,26 @@ def _response(**values: object) -> dict[str, object]:
     return {"version": PROTOCOL_VERSION, **values}
 
 
-def main() -> int:
-    raw = sys.stdin.buffer.read(12 * 1024 * 1024 + 1)
+def _bootstrap_limit(argv: list[str]) -> int:
+    if len(argv) != 1:
+        raise ValueError("worker protocol limit argument required")
+    limit = int(argv[0])
+    if limit <= 0:
+        raise ValueError("worker protocol limit must be positive")
+    return limit
+
+
+def main(argv: list[str] | None = None) -> int:
     try:
-        request = decode_frame(raw, maximum=12 * 1024 * 1024)
+        bootstrap_limit = _bootstrap_limit(sys.argv[1:] if argv is None else argv)
+        raw = sys.stdin.buffer.read(bootstrap_limit + 1)
+        request = decode_frame(raw, maximum=bootstrap_limit)
         if set(request) != {"version", "operation", "data", "policy"} or request["version"] != PROTOCOL_VERSION:
             raise ProtocolError("invalid request shape")
         if request["operation"] not in {"pdf_text", "image_ocr", "image_canonicalize"} or not isinstance(request["data"], str):
             raise ProtocolError("invalid request operation")
         policy = policy_from_wire(request["policy"])
-        if len(raw) > policy.limits.max_protocol_bytes:
+        if len(raw) > bootstrap_limit or policy.limits.max_protocol_bytes != bootstrap_limit:
             raise ProtocolError("request exceeds policy")
         data = base64.b64decode(request["data"].encode("ascii"), validate=True)
         if len(data) > policy.limits.max_input_bytes:
@@ -53,7 +63,7 @@ def main() -> int:
     except OSError:
         result = _response(outcome=Outcome.RESOURCE_TERMINATED.value)
     try:
-        sys.stdout.buffer.write(encode_frame(result, maximum=12 * 1024 * 1024))
+        sys.stdout.buffer.write(encode_frame(result, maximum=bootstrap_limit))
         sys.stdout.buffer.flush()
         return 0
     except OSError:

@@ -74,7 +74,7 @@ def run_operation(operation: str, data: bytes, policy: WorkerPolicy, *, bytes_re
         return (BytesResult if bytes_result else TextResult)(Outcome.INVALID_INPUT, limit_reason=LimitReason.PROTOCOL_BYTES)
     try:
         child = subprocess.Popen(
-            [sys.executable, "-m", "bounded_media_worker._worker"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            [sys.executable, "-m", "bounded_media_worker._worker", str(policy.limits.max_protocol_bytes)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, env=_minimal_environment(), cwd="/", start_new_session=True,
         )
     except OSError:
@@ -87,6 +87,9 @@ def run_operation(operation: str, data: bytes, policy: WorkerPolicy, *, bytes_re
     except _OutputOverflow:
         _terminate_group(child)
         return (BytesResult if bytes_result else TextResult)(Outcome.OUTPUT_LIMIT, limit_reason=LimitReason.PROTOCOL_BYTES)
+    except (OSError, RuntimeError, ValueError):
+        _terminate_group(child)
+        return (BytesResult if bytes_result else TextResult)(Outcome.WORKER_EXIT)
     if child.returncode is not None and child.returncode < 0:
         return (BytesResult if bytes_result else TextResult)(Outcome.WORKER_EXIT, signal=-child.returncode)
     if child.returncode:
@@ -98,20 +101,23 @@ def run_operation(operation: str, data: bytes, policy: WorkerPolicy, *, bytes_re
 
 
 def _terminate_group(child: subprocess.Popen[bytes]) -> None:
+    """Terminate and reap the whole session, including a surviving grandchild."""
     try:
         os.killpg(child.pid, signal.SIGTERM)
-    except ProcessLookupError:
+    except OSError:
         pass
     try:
         child.wait(timeout=0.5)
-        return
-    except subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):
         pass
     try:
         os.killpg(child.pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except OSError:
         pass
-    child.wait(timeout=1.0)
+    try:
+        child.wait(timeout=1.0)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def _communicate_bounded(child: subprocess.Popen[bytes], request: bytes, maximum: int, timeout: float) -> bytes:
