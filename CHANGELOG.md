@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0rc2 — 2026-10-29
 
 - Hardened parent-side response validation and process-group cleanup.
 - Removed private development metadata from distributed artifacts.
