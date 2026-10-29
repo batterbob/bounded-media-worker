@@ -7,7 +7,9 @@ import base64
 import csv
 import hashlib
 import math
+import os
 import re
+import stat
 import subprocess
 import tarfile
 import zipfile
@@ -36,14 +38,19 @@ def _denylist(path: Path) -> tuple[str, ...]:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
         raise GateFailure from error
-    terms = tuple(
-        line.strip().casefold()
-        for line in text.splitlines()
-        if line.strip() and not line.lstrip().startswith("#") and any(character.isalnum() for character in line)
-    )
+    terms: list[str] = []
+    for line in text.splitlines():
+        term = line.strip()
+        if not term or line.lstrip().startswith("#"):
+            continue
+        # An active entry without a word character is too ambiguous to apply
+        # safely.  Do not silently omit it from the scan.
+        if not term.isprintable() or not any(character.isalnum() for character in term):
+            raise GateFailure
+        terms.append(term.casefold())
     if not terms:
         raise GateFailure
-    return terms
+    return tuple(terms)
 
 
 def _entropy(value: str) -> float:
@@ -72,45 +79,51 @@ def _term_matches(text: str, term: str) -> bool:
     return term in text
 
 
-def _checked_files() -> Iterator[Path]:
+def _checked_files() -> Iterator[tuple[bytes, Path]]:
     completed = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        ["git", "ls-files", "--cached", "-z"],
         cwd=ROOT,
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
-        text=True,
     )
-    for relative in completed.stdout.splitlines():
-        path = ROOT / relative
-        if path.is_file() and not path.is_symlink():
-            yield path
+    for relative in completed.stdout.split(b"\0"):
+        if not relative:
+            continue
+        yield relative, ROOT / os.fsdecode(relative)
 
 
 def _check_source(terms: tuple[str, ...]) -> None:
-    for path in _checked_files():
-        if _contains_prohibited(path.read_bytes(), terms):
+    for relative, path in _checked_files():
+        if _contains_prohibited(relative, terms):
+            raise GateFailure
+        try:
+            mode = os.lstat(path).st_mode
+        except OSError as error:
+            raise GateFailure from error
+        if stat.S_ISLNK(mode):
+            if _contains_prohibited(os.fsencode(os.readlink(path)), terms):
+                raise GateFailure
+        elif stat.S_ISREG(mode):
+            if _contains_prohibited(path.read_bytes(), terms):
+                raise GateFailure
+        else:
             raise GateFailure
 
 
 def _git_blobs() -> Iterator[bytes]:
     completed = subprocess.run(
-        ["git", "rev-list", "--objects", "--all"],
+        ["git", "cat-file", "--batch-all-objects", "--batch-check=%(objectname) %(objecttype)"],
         cwd=ROOT,
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
     )
-    seen: set[str] = set()
     for line in completed.stdout.splitlines():
-        object_id = line.partition(" ")[0]
-        if object_id in seen:
-            continue
-        seen.add(object_id)
-        object_type = subprocess.run(
-            ["git", "cat-file", "-t", object_id], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
-        ).stdout.strip()
+        object_id, separator, object_type = line.partition(" ")
+        if not separator or not object_id or object_type not in {"blob", "commit", "tag", "tree"}:
+            raise GateFailure
         if object_type == "blob":
             yield subprocess.run(
                 ["git", "cat-file", "blob", object_id], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
@@ -124,30 +137,39 @@ def _check_git_objects(terms: tuple[str, ...]) -> None:
 
 def _safe_member(name: str) -> None:
     path = PurePosixPath(name)
-    if path.is_absolute() or ".." in path.parts:
+    if not name or "\\" in name or path.is_absolute() or ".." in path.parts or not path.parts:
         raise GateFailure
 
 
 def _check_wheel(path: Path, terms: tuple[str, ...]) -> None:
     with zipfile.ZipFile(path) as archive:
         records: dict[str, tuple[str, str]] = {}
-        members = [member for member in archive.infolist() if not member.is_dir()]
+        record_members = 0
+        names: set[str] = set()
+        members = archive.infolist()
         for member in members:
             _safe_member(member.filename)
+            if member.filename in names:
+                raise GateFailure
+            names.add(member.filename)
             if member.external_attr >> 16 & 0o170000 == 0o120000:
                 raise GateFailure
             if _contains_prohibited(member.filename.encode(), terms):
                 raise GateFailure
+            if member.is_dir():
+                continue
             if member.filename.endswith(".dist-info/RECORD"):
+                record_members += 1
                 for row in csv.reader(archive.read(member).decode("utf-8").splitlines()):
                     if len(row) != 3:
                         raise GateFailure
                     records[row[0]] = (row[1], row[2])
             elif _contains_prohibited(archive.read(member), terms):
                 raise GateFailure
-        if not records or set(records) != {member.filename for member in members}:
+        files = {member.filename for member in members if not member.is_dir()}
+        if record_members != 1 or not records or set(records) != files:
             raise GateFailure
-        for member in members:
+        for member in (member for member in members if not member.is_dir()):
             digest, size = records[member.filename]
             data = archive.read(member)
             if member.filename.endswith(".dist-info/RECORD"):
@@ -195,7 +217,7 @@ def main() -> int:
         _receipt("git-objects", lambda: _check_git_objects(terms))
         _receipt("wheel", lambda: _check_wheel(args.wheel, terms))
         _receipt("sdist", lambda: _check_sdist(args.sdist, terms))
-    except (GateFailure, OSError, subprocess.SubprocessError, tarfile.TarError, zipfile.BadZipFile, UnicodeError):
+    except Exception:  # noqa: BLE001 -- the gate must fail closed for every operational error.
         print("privacy-gate: FAIL")
         return 1
     print("privacy-gate: PASS")
