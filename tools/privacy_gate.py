@@ -43,9 +43,9 @@ def _denylist(path: Path) -> tuple[str, ...]:
         term = line.strip()
         if not term or line.lstrip().startswith("#"):
             continue
-        # An active entry without a word character is too ambiguous to apply
-        # safely.  Do not silently omit it from the scan.
-        if not term.isprintable() or not any(character.isalnum() for character in term):
+        # Short or non-word active entries are too ambiguous to apply safely.
+        # Do not silently omit them from the scan.
+        if len(term) < 2 or not term.isprintable() or not any(character.isalnum() for character in term):
             raise GateFailure
         terms.append(term.casefold())
     if not terms:

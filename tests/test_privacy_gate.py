@@ -44,7 +44,7 @@ def _write_sdist(path: Path, member_name: str, content: bytes) -> None:
         archive.addfile(member, io.BytesIO(content))
 
 
-@pytest.mark.parametrize("entry", ["---", "***", "!!!", "invalid\x00entry"])
+@pytest.mark.parametrize("entry", ["a", "---", "***", "!!!", "invalid\x00entry"])
 def test_denylist_rejects_malformed_active_entry(tmp_path: Path, entry: str) -> None:
     denylist = tmp_path / "denylist.txt"
     denylist.write_text(f"# comment\n\n{entry}\nvalid term\n", encoding="utf-8")
