@@ -61,15 +61,15 @@ Linux/POSIX is required for the documented process-group and resource-limit
 behavior. Python 3.11 or newer is supported.
 
 The project is not currently published on PyPI. Download the wheel from the
-immutable `v0.1.0-rc1` GitHub release, verify its published SHA-256 value, and
+`v0.1.0-rc2` GitHub release candidate, verify its published SHA-256 value, and
 install the features you need locally:
 
 ```bash
-python -m pip install './bounded_media_worker-0.1.0rc1-py3-none-any.whl[pdf]'
+python -m pip install './bounded_media_worker-0.1.0rc2-py3-none-any.whl[pdf]'
 
-python -m pip install './bounded_media_worker-0.1.0rc1-py3-none-any.whl[image]'
+python -m pip install './bounded_media_worker-0.1.0rc2-py3-none-any.whl[image]'
 
-python -m pip install './bounded_media_worker-0.1.0rc1-py3-none-any.whl[ocr]'
+python -m pip install './bounded_media_worker-0.1.0rc2-py3-none-any.whl[ocr]'
 ```
 
 The base package has no parser dependency. The extras install:
