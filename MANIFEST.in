@@ -1,4 +1,3 @@
 include LICENSE
 include SECURITY.md
 include CHANGELOG.md
-include docs/provenance.md

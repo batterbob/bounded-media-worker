@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Iterator
 from typing import Any
 
 PROTOCOL_VERSION = 1
@@ -32,7 +33,7 @@ def decode_frame(raw: bytes, *, maximum: int) -> dict[str, Any]:
     try:
         text = raw.decode("utf-8", "strict")
         value = json.loads(text, object_pairs_hook=_pairs, parse_constant=_constant)
-    except (UnicodeDecodeError, json.JSONDecodeError, ProtocolError) as error:
+    except (UnicodeDecodeError, json.JSONDecodeError, ProtocolError, RecursionError) as error:
         raise ProtocolError("malformed JSON frame") from error
     if not isinstance(value, dict):
         raise ProtocolError("frame must be an object")
@@ -41,12 +42,16 @@ def decode_frame(raw: bytes, *, maximum: int) -> dict[str, Any]:
     return value
 
 
-def _walk(value: Any) -> list[Any]:
-    if isinstance(value, dict):
-        return [item for pair in value.items() for item in (pair[0], *_walk(pair[1]))]
-    if isinstance(value, list):
-        return [item for element in value for item in _walk(element)]
-    return [value]
+def _walk(value: Any) -> Iterator[Any]:
+    """Iterate JSON values without recursive traversal of hostile nesting."""
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        yield item
+        if isinstance(item, dict):
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
 
 
 def encode_frame(value: dict[str, Any], *, maximum: int) -> bytes:

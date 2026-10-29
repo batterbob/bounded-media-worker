@@ -22,8 +22,8 @@ an application a smaller and more explicit failure boundary:
 - optional PDF/image/OCR dependencies import only in the child;
 - requests and responses use a strict versioned JSON protocol;
 - response reads are streamed and capped before retention;
-- the worker runs in a fresh process group that is terminated and reaped on
-  timeout or protocol overflow;
+- the worker runs in a fresh process group that is terminated and reaped after
+  every operation;
 - results use conservative machine-readable outcomes instead of guessing why a
   process died;
 - PNG canonicalization removes source metadata and emits deterministic RGB data.
@@ -193,9 +193,10 @@ image, or OCR libraries. No caller-provided paths, credentials, or environment
 variables are forwarded.
 
 The parent concurrently writes the request and reads the response with a single
-wall-clock deadline. It never retains more than the configured protocol cap. On
-timeout, overflow, or pipe failure it terminates the process group, waits a
-bounded grace period, sends `SIGKILL`, and reaps the direct child.
+wall-clock deadline. It never retains more than the configured protocol cap.
+It validates successful payload type, media type, and payload-size limits
+independently of the child, then terminates the process group, waits a bounded
+grace period, sends `SIGKILL`, and reaps the direct child after every operation.
 
 There is still a small unavoidable window before the child installs limits.
 Process-group teardown also cannot make a kernel-uninterruptible process vanish.
@@ -233,6 +234,5 @@ Release acceptance also uses a private denylist and scans tracked names and
 contents, Git blobs, and wheel/sdist member names and contents. The scanner emits
 only pass/fail receipts and never prints private terms or matching material.
 
-See [CHANGELOG.md](CHANGELOG.md), the
-[release-candidate report](docs/RELEASE_CANDIDATE.md), and
-[provenance notes](docs/provenance.md) for the current candidate evidence.
+See [CHANGELOG.md](CHANGELOG.md) and the
+[release-candidate report](docs/RELEASE_CANDIDATE.md) for the current candidate evidence.
